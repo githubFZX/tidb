@@ -41,7 +41,7 @@ func DecodeValFromByte(v []byte) (chunk.RowPtr, error) {
 	var val chunk.RowPtr
 	err := decoder.Decode(val)
 	if err != nil {
-		return _, err
+		return chunk.RowPtr{}, err
 	}
 	return val, nil
 }
