@@ -276,7 +276,7 @@ type HashJoinExec struct {
 
 	// concurrency is the number of partition, build and join workers.
 	concurrency  uint
-	rowContainer *hashtable.HashContainer
+	rowContainer *hashRowContainer
 	HT           hashtable.HashTable
 
 	innerFinished chan error
