@@ -17,6 +17,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"github.com/pingcap/tidb/util/hashtable"
 	"math"
 	"sort"
 	"strings"
@@ -992,6 +993,97 @@ func (b *executorBuilder) buildHashJoin(v *plannercore.PhysicalHashJoin) Executo
 		return nil
 	}
 
+	var hashExec Executor
+	if v.InnerChildIdx == 0 {
+		hashExec = &ParallelHashExec{
+			baseExecutor:  newBaseExecutor(b.ctx, nil, nil, leftExec),
+			innerExec:     leftExec,
+			innerEstCount: v.Children()[0].StatsCount(),
+			innerKeys:     v.InnerJoinKeys,
+			concurrency:   4,
+		}
+		leftExec = hashExec
+	} else {
+		hashExec = &ParallelHashExec{
+			baseExecutor:  newBaseExecutor(b.ctx, nil, nil, rightExec),
+			innerEstCount: v.Children()[1].StatsCount(),
+			innerExec:     rightExec,
+			innerKeys:     v.InnerJoinKeys,
+			concurrency:   4,
+		}
+		rightExec = hashExec
+	}
+
+	// [TODO]In this place, we could join adaptor to choose startegy.
+	// create HT of ParallelHashExec and let HashJoinExec point to the same one hashtable of ParallelHashExec
+	parallelHT := hashExec.(*ParallelHashExec)
+	parallelHT.HT = hashtable.NewMap(int64(v.Children()[0].StatsCount()))
+
+	e := &HashJoinExec{
+		baseExecutor:  newBaseExecutor(b.ctx, v.Schema(), v.ExplainID(), leftExec, rightExec),
+		concurrency:   v.Concurrency,
+		joinType:      v.JoinType,
+		isOuterJoin:   v.JoinType.IsOuterJoin(),
+		innerEstCount: v.Children()[v.InnerChildIdx].StatsCount(),
+		HT:            parallelHT.HT,
+	}
+
+	defaultValues := v.DefaultValues
+	//lhsTypes, rhsTypes := retTypes(leftExec), retTypes(rightExec)
+	var lhsTypes, rhsTypes []*types.FieldType
+	if v.InnerChildIdx == 0 {
+		// hashExec and leftExec points to equal executor
+		lhsTypes = retTypes(hashExec.base().children[0])
+		rhsTypes = retTypes(rightExec)
+
+		if len(v.LeftConditions) > 0 {
+			b.err = errors.Annotate(ErrBuildExecutor, "join's inner condition should be empty")
+			return nil
+		}
+		e.innerExec = leftExec
+		e.outerExec = rightExec
+		e.outerFilter = v.RightConditions
+		e.outerKeys = v.RightJoinKeys
+		if defaultValues == nil {
+			defaultValues = make([]types.Datum, e.innerExec.Schema().Len())
+		}
+	} else {
+		// hashExec and rightExec points to equal executor
+		lhsTypes = retTypes(leftExec)
+		rhsTypes = retTypes(hashExec.base().children[0])
+
+		if len(v.RightConditions) > 0 {
+			b.err = errors.Annotate(ErrBuildExecutor, "join's inner condition should be empty")
+			return nil
+		}
+		e.innerExec = rightExec
+		e.outerExec = leftExec
+		e.outerFilter = v.LeftConditions
+		e.outerKeys = v.LeftJoinKeys
+		if defaultValues == nil {
+			defaultValues = make([]types.Datum, e.innerExec.Schema().Len())
+		}
+	}
+	e.joiners = make([]joiner, e.concurrency)
+	for i := uint(0); i < e.concurrency; i++ {
+		e.joiners[i] = newJoiner(b.ctx, v.JoinType, v.InnerChildIdx == 0, defaultValues,
+			v.OtherConditions, lhsTypes, rhsTypes)
+	}
+	executorCountHashJoinExec.Inc()
+	return e
+}
+
+/*func (b *executorBuilder) buildHashJoin(v *plannercore.PhysicalHashJoin) Executor {
+	leftExec := b.build(v.Children()[0])
+	if b.err != nil {
+		return nil
+	}
+
+	rightExec := b.build(v.Children()[1])
+	if b.err != nil {
+		return nil
+	}
+
 	e := &HashJoinExec{
 		baseExecutor:  newBaseExecutor(b.ctx, v.Schema(), v.ExplainID(), leftExec, rightExec),
 		concurrency:   v.Concurrency,
@@ -999,6 +1091,7 @@ func (b *executorBuilder) buildHashJoin(v *plannercore.PhysicalHashJoin) Executo
 		isOuterJoin:   v.JoinType.IsOuterJoin(),
 		innerEstCount: v.Children()[v.InnerChildIdx].StatsCount(),
 	}
+
 
 	defaultValues := v.DefaultValues
 	lhsTypes, rhsTypes := retTypes(leftExec), retTypes(rightExec)
@@ -1036,7 +1129,7 @@ func (b *executorBuilder) buildHashJoin(v *plannercore.PhysicalHashJoin) Executo
 	}
 	executorCountHashJoinExec.Inc()
 	return e
-}
+}*/
 
 func (b *executorBuilder) buildHashAgg(v *plannercore.PhysicalHashAgg) Executor {
 	src := b.build(v.Children()[0])
