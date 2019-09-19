@@ -998,26 +998,26 @@ func (b *executorBuilder) buildHashJoin(v *plannercore.PhysicalHashJoin) Executo
 		hashExec = &ParallelHashExec{
 			baseExecutor:  newBaseExecutor(b.ctx, nil, nil, leftExec),
 			innerExec:     leftExec,
-			innerEstCount: v.Children()[0].StatsCount(),
+			innerEstCount: v.Children()[v.InnerChildIdx].StatsCount(),
 			innerKeys:     v.InnerJoinKeys,
-			concurrency:   4,
+			concurrency:   1,
 		}
 		leftExec = hashExec
 	} else {
 		hashExec = &ParallelHashExec{
 			baseExecutor:  newBaseExecutor(b.ctx, nil, nil, rightExec),
-			innerEstCount: v.Children()[1].StatsCount(),
+			innerEstCount: v.Children()[v.InnerChildIdx].StatsCount(),
 			innerExec:     rightExec,
 			innerKeys:     v.InnerJoinKeys,
-			concurrency:   4,
+			concurrency:   1,
 		}
 		rightExec = hashExec
 	}
 
 	// [TODO]In this place, we could join adaptor to choose startegy.
-	// create HT of ParallelHashExec and let HashJoinExec point to the same one hashtable of ParallelHashExec
+	// create HT of ParallelHashExec
 	parallelHT := hashExec.(*ParallelHashExec)
-	parallelHT.HT = hashtable.NewMap(int64(v.Children()[0].StatsCount()))
+	parallelHT.HT = hashtable.NewMap(1000)
 
 	e := &HashJoinExec{
 		baseExecutor:  newBaseExecutor(b.ctx, v.Schema(), v.ExplainID(), leftExec, rightExec),
@@ -1025,7 +1025,6 @@ func (b *executorBuilder) buildHashJoin(v *plannercore.PhysicalHashJoin) Executo
 		joinType:      v.JoinType,
 		isOuterJoin:   v.JoinType.IsOuterJoin(),
 		innerEstCount: v.Children()[v.InnerChildIdx].StatsCount(),
-		HT:            parallelHT.HT,
 	}
 
 	defaultValues := v.DefaultValues

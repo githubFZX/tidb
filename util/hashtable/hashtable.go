@@ -15,6 +15,7 @@ import (
 type HashTable interface {
 	Put(k, v []byte) bool
 	Get(k []byte) [][]byte
+	Len() uint64
 }
 
 func EncodeKeyToByte(k uint64) []byte {
@@ -81,7 +82,8 @@ func (c *HashContainer) GetMatchedRows(probeRow chunk.Row, hCtx *HashContext) (m
 	}
 	matched = make([]chunk.Row, 0, len(innerPtrs))
 	for _, ptr := range innerPtrs {
-		v, err := DecodeValFromByte(ptr)
+		var v chunk.RowPtr
+		v, err = DecodeValFromByte(ptr)
 		if err != nil {
 			return
 		}
@@ -114,4 +116,8 @@ func (c *HashContainer) GetJoinKeyFromChkRow(sc *stmtctx.StatementContext, row c
 	hCtx.H.Reset()
 	err = codec.HashChunkRow(sc, hCtx.H, row, hCtx.AllTypes, hCtx.KeyColIdx, hCtx.Buf)
 	return false, hCtx.H.Sum64(), err
+}
+
+func (c *HashContainer) Len() uint64 {
+	return c.HT.Len()
 }

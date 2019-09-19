@@ -272,3 +272,7 @@ func (h *hmap) Get(k []byte) [][]byte {
 	}
 	return vals
 }
+
+func (h *hmap) Len() uint64 {
+	return h.count
+}

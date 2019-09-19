@@ -45,9 +45,9 @@ type ParallelHashExec struct {
 	innerKeys     []*expression.Column
 
 	// concurrency is the number of build workers
-	concurrency   uint
-	hashContainer *hashtable.HashContainer
-	HT            hashtable.HashTable
+	concurrency uint
+	HC          *hashtable.HashContainer
+	HT          hashtable.HashTable
 
 	innerWorkerWaitGroup sync.WaitGroup
 	innerChkResourceCh   chan *innerChkResource
@@ -137,7 +137,7 @@ func (e *ParallelHashExec) Open(ctx context.Context) error {
 	}
 
 	// In this place, we let e.hashContainer's HT
-	e.hashContainer = &hashtable.HashContainer{
+	e.HC = &hashtable.HashContainer{
 		Records: records,
 		HT:      e.HT,
 		SC:      e.ctx.GetSessionVars().StmtCtx,
@@ -171,8 +171,8 @@ func (e *ParallelHashExec) fetchInnerRows(ctx context.Context, doneCh chan inter
 			return
 		}
 		//add chunk to hashContainer's records field
-		e.hashContainer.Records.Add(chk)
-		innerChk.chkid = e.hashContainer.Records.NumChunks()
+		e.HC.Records.Add(chk)
+		innerChk.chkid = e.HC.Records.NumChunks()
 
 		//send to one build worker
 		innerResource.dest <- innerChk
@@ -207,7 +207,7 @@ func (e *ParallelHashExec) runBuildWorker(workerId uint, doneCh chan interface{}
 		chkid := innerChk.chkid
 		numRows := chk.NumRows()
 		for i := 0; i < numRows; i++ {
-			hasNull, key, err := e.hashContainer.GetJoinKeyFromChkRow(e.hashContainer.SC, chk.GetRow(i), e.hashContainer.HCtx)
+			hasNull, key, err := e.HC.GetJoinKeyFromChkRow(e.HC.SC, chk.GetRow(i), e.HC.HCtx)
 			if err != nil {
 				e.innerFinished <- errors.Trace(err)
 				return
@@ -223,7 +223,7 @@ func (e *ParallelHashExec) runBuildWorker(workerId uint, doneCh chan interface{}
 				e.innerFinished <- errors.Trace(err)
 				return
 			}
-			e.hashContainer.HT.Put(keyStream, valStream)
+			e.HC.HT.Put(keyStream, valStream)
 		}
 	}
 }
@@ -238,7 +238,9 @@ func (e *ParallelHashExec) handleRunBuildWorker(r interface{}) {
 func (e *ParallelHashExec) buildHashTableForList(doneCh chan interface{}) (err error) {
 	for i := uint(0); i < e.concurrency; i++ {
 		e.innerWorkerWaitGroup.Add(1)
-		go util.WithRecovery(func() { e.runBuildWorker(i, doneCh) }, e.handleRunBuildWorker)
+		// this place is very important. Or error will be occured here.
+		workerId := i
+		go util.WithRecovery(func() { e.runBuildWorker(workerId, doneCh) }, e.handleRunBuildWorker)
 	}
 
 	go func() {
@@ -275,9 +277,8 @@ type HashJoinExec struct {
 	//innerKeys     []*expression.Column
 
 	// concurrency is the number of partition, build and join workers.
-	concurrency  uint
-	rowContainer *hashRowContainer
-	HT           hashtable.HashTable
+	concurrency   uint
+	hashContainer *hashtable.HashContainer
 
 	innerFinished chan error
 	// joinWorkerWaitGroup is for sync multiple join workers.
@@ -363,9 +364,14 @@ func (e *HashJoinExec) Open(ctx context.Context) error {
 	}
 
 	// In executor builder, we create hashtable of ParallelHashExec
-	// and let HashJoinExec's HT point to the same hashtable with ParallelHashExec's.
-	// In this place, we let e.rowContainer.HT point to e.HT.
-	e.rowContainer.HT = e.HT
+	// In ParallelHashExec's Open method, we join the ParallelHashExec's HT to ParallelHashExec's HC
+	// In this place, we let e.hashContainer point to the same HashContainer with ParallelHashExec's
+	if pe, ok := e.children[0].(*ParallelHashExec); ok {
+		e.hashContainer = pe.HC
+	} else {
+		pe = e.children[1].(*ParallelHashExec)
+		e.hashContainer = pe.HC
+	}
 
 	e.prepared = false
 	e.memTracker = memory.NewTracker(e.id, e.ctx.GetSessionVars().MemQuotaHashJoin)
@@ -442,7 +448,7 @@ func (e *HashJoinExec) wait4Inner() (finished bool, err error) {
 			return false, err
 		}
 	}
-	if e.rowContainer.Len() == 0 && (e.joinType == plannercore.InnerJoin || e.joinType == plannercore.SemiJoin) {
+	if e.hashContainer.Len() == 0 && (e.joinType == plannercore.InnerJoin || e.joinType == plannercore.SemiJoin) {
 		return true, nil
 	}
 	return false, nil
@@ -538,11 +544,11 @@ func (e *HashJoinExec) runJoinWorker(workerID uint, outerKeyColIdx []int) {
 	emptyOuterResult := &outerChkResource{
 		dest: e.outerResultChs[workerID],
 	}
-	hCtx := &hashContext{
-		allTypes:  retTypes(e.outerExec),
-		keyColIdx: outerKeyColIdx,
-		h:         fnv.New64(),
-		buf:       make([]byte, 1),
+	hCtx := &hashtable.HashContext{
+		AllTypes:  retTypes(e.outerExec),
+		KeyColIdx: outerKeyColIdx,
+		H:         fnv.New64(),
+		Buf:       make([]byte, 1),
 	}
 	for ok := true; ok; {
 		if e.finished.Load().(bool) {
@@ -571,9 +577,9 @@ func (e *HashJoinExec) runJoinWorker(workerID uint, outerKeyColIdx []int) {
 	}
 }
 
-func (e *HashJoinExec) joinMatchedOuterRow2Chunk(workerID uint, outerRow chunk.Row, hCtx *hashContext,
+func (e *HashJoinExec) joinMatchedOuterRow2Chunk(workerID uint, outerRow chunk.Row, hCtx *hashtable.HashContext,
 	joinResult *hashjoinWorkerResult) (bool, *hashjoinWorkerResult) {
-	innerRows, err := e.rowContainer.GetMatchedRows(outerRow, hCtx)
+	innerRows, err := e.hashContainer.GetMatchedRows(outerRow, hCtx)
 	if err != nil {
 		joinResult.err = err
 		return false, joinResult
@@ -620,7 +626,7 @@ func (e *HashJoinExec) getNewJoinResult(workerID uint) (bool, *hashjoinWorkerRes
 	return ok, joinResult
 }
 
-func (e *HashJoinExec) join2Chunk(workerID uint, outerChk *chunk.Chunk, hCtx *hashContext, joinResult *hashjoinWorkerResult,
+func (e *HashJoinExec) join2Chunk(workerID uint, outerChk *chunk.Chunk, hCtx *hashtable.HashContext, joinResult *hashjoinWorkerResult,
 	selected []bool) (ok bool, _ *hashjoinWorkerResult) {
 	var err error
 	selected, err = expression.VectorizedFilter(e.ctx, e.outerFilter, chunk.NewIterator4Chunk(outerChk), selected)
