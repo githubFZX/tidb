@@ -999,7 +999,7 @@ func (b *executorBuilder) buildHashJoin(v *plannercore.PhysicalHashJoin) Executo
 			baseExecutor:  newBaseExecutor(b.ctx, nil, nil, leftExec),
 			innerExec:     leftExec,
 			innerEstCount: v.Children()[v.InnerChildIdx].StatsCount(),
-			innerKeys:     v.InnerJoinKeys,
+			innerKeys:     v.LeftJoinKeys,
 			concurrency:   1,
 		}
 		leftExec = hashExec
@@ -1008,7 +1008,7 @@ func (b *executorBuilder) buildHashJoin(v *plannercore.PhysicalHashJoin) Executo
 			baseExecutor:  newBaseExecutor(b.ctx, nil, nil, rightExec),
 			innerEstCount: v.Children()[v.InnerChildIdx].StatsCount(),
 			innerExec:     rightExec,
-			innerKeys:     v.InnerJoinKeys,
+			innerKeys:     v.RightJoinKeys,
 			concurrency:   1,
 		}
 		rightExec = hashExec
@@ -1044,7 +1044,8 @@ func (b *executorBuilder) buildHashJoin(v *plannercore.PhysicalHashJoin) Executo
 		e.outerFilter = v.RightConditions
 		e.outerKeys = v.RightJoinKeys
 		if defaultValues == nil {
-			defaultValues = make([]types.Datum, e.innerExec.Schema().Len())
+			//defaultValues = make([]types.Datum, e.innerExec.Schema().Len())
+			defaultValues = make([]types.Datum, hashExec.base().children[0].Schema().Len())
 		}
 	} else {
 		// hashExec and rightExec points to equal executor
@@ -1060,7 +1061,8 @@ func (b *executorBuilder) buildHashJoin(v *plannercore.PhysicalHashJoin) Executo
 		e.outerFilter = v.LeftConditions
 		e.outerKeys = v.LeftJoinKeys
 		if defaultValues == nil {
-			defaultValues = make([]types.Datum, e.innerExec.Schema().Len())
+			//defaultValues = make([]types.Datum, e.innerExec.Schema().Len())
+			defaultValues = make([]types.Datum, hashExec.base().children[0].Schema().Len())
 		}
 	}
 	e.joiners = make([]joiner, e.concurrency)

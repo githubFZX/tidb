@@ -40,7 +40,7 @@ func EncodeValToByte(v chunk.RowPtr) ([]byte, error) {
 func DecodeValFromByte(v []byte) (chunk.RowPtr, error) {
 	decoder := gob.NewDecoder(bytes.NewReader(v))
 	var val chunk.RowPtr
-	err := decoder.Decode(val)
+	err := decoder.Decode(&val)
 	if err != nil {
 		return chunk.RowPtr{}, err
 	}

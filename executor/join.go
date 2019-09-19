@@ -104,6 +104,11 @@ func (e *ParallelHashExec) Close() error {
 }
 
 func (e *ParallelHashExec) Open(ctx context.Context) error {
+	//We shoule invoke children's Open method.
+	if err := e.base().Open(ctx); err != nil {
+		return err
+	}
+
 	e.innerResultChs = make([]chan *innerResultChk, e.concurrency)
 	for i := uint(0); i < e.concurrency; i++ {
 		e.innerResultChs[i] = make(chan *innerResultChk, 1)
@@ -170,11 +175,11 @@ func (e *ParallelHashExec) fetchInnerRows(ctx context.Context, doneCh chan inter
 		if chk.NumRows() == 0 {
 			return
 		}
-		//add chunk to hashContainer's records field
-		e.HC.Records.Add(chk)
-		innerChk.chkid = e.HC.Records.NumChunks()
+		// add chunk to hashContainer's records field
+		e.HC.Records.Add(chk.CopyConstruct())
+		innerChk.chkid = e.HC.Records.NumChunks() - 1
 
-		//send to one build worker
+		// send to one build worker
 		innerResource.dest <- innerChk
 	}
 }
@@ -189,6 +194,11 @@ func (e *ParallelHashExec) handleFetchInnerRows(r interface{}) {
 }
 
 func (e *ParallelHashExec) runBuildWorker(workerId uint, doneCh chan interface{}) {
+	// this place is very important
+	emptyInnerResult := &innerChkResource{
+		dest: e.innerResultChs[workerId],
+	}
+
 	for {
 		var innerChk *innerResultChk
 		var ok bool
@@ -225,6 +235,10 @@ func (e *ParallelHashExec) runBuildWorker(workerId uint, doneCh chan interface{}
 			}
 			e.HC.HT.Put(keyStream, valStream)
 		}
+		innerChk.chk.Reset()
+		innerChk.chkid = 0
+		emptyInnerResult.innerChk = innerChk
+		e.innerChkResourceCh <- emptyInnerResult
 	}
 }
 
