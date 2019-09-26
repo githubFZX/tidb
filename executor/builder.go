@@ -17,7 +17,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"github.com/pingcap/tidb/util/hashtable"
+	"github.com/pingcap/tidb/executor/adaptor"
 	"math"
 	"sort"
 	"strings"
@@ -983,6 +983,7 @@ func (b *executorBuilder) buildMergeJoin(v *plannercore.PhysicalMergeJoin) Execu
 }
 
 func (b *executorBuilder) buildHashJoin(v *plannercore.PhysicalHashJoin) Executor {
+
 	leftExec := b.build(v.Children()[0])
 	if b.err != nil {
 		return nil
@@ -993,31 +994,57 @@ func (b *executorBuilder) buildHashJoin(v *plannercore.PhysicalHashJoin) Executo
 		return nil
 	}
 
+	// new a register to add initiation methods of ParamGenerator and SceneGenerator
+	register := adaptor.NewRegister()
+	// register initiation method of HashJoinParamGenerator and HashJoinSceneGenerator
+	register.Register("HashJoin", func() (pg adaptor.ParamGenerator, sg adaptor.SceneGenerator) {
+		if v.InnerChildIdx == 0 {
+			pg = &adaptor.HashJoinPG{
+				Ctx: leftExec.base().ctx,
+				E:   leftExec,
+			}
+		} else {
+			pg = &adaptor.HashJoinPG{
+				Ctx: leftExec.base().ctx,
+				E:   rightExec,
+			}
+		}
+		sg = new(adaptor.HashJoinSG)
+		return
+	})
+	hjAdaptor := new(adaptor.HashJoinAdapter)
+	hjAdaptor.BindingToAdaptor(register)
+
+	// Following codes are normal building flow of ParallelHashJoin and HashJoin
 	var hashExec Executor
 	if v.InnerChildIdx == 0 {
 		hashExec = &ParallelHashExec{
 			baseExecutor:  newBaseExecutor(b.ctx, nil, nil, leftExec),
-			innerExec:     leftExec,
+			InnerExec:     leftExec,
 			innerEstCount: v.Children()[v.InnerChildIdx].StatsCount(),
-			innerKeys:     v.LeftJoinKeys,
+			InnerKeys:     v.LeftJoinKeys,
 			concurrency:   1,
+
+			Adaptor: hjAdaptor,
 		}
 		leftExec = hashExec
 	} else {
 		hashExec = &ParallelHashExec{
 			baseExecutor:  newBaseExecutor(b.ctx, nil, nil, rightExec),
 			innerEstCount: v.Children()[v.InnerChildIdx].StatsCount(),
-			innerExec:     rightExec,
-			innerKeys:     v.RightJoinKeys,
+			InnerExec:     rightExec,
+			InnerKeys:     v.RightJoinKeys,
 			concurrency:   1,
+
+			Adaptor: hjAdaptor,
 		}
 		rightExec = hashExec
 	}
 
 	// [TODO]In this place, we could join adaptor to choose startegy.
 	// create HT of ParallelHashExec
-	parallelHT := hashExec.(*ParallelHashExec)
-	parallelHT.HT = hashtable.NewMap(1000)
+	//parallelHT := hashExec.(*ParallelHashExec)
+	//parallelHT.HT = hashtable.NewMap(1000)
 
 	e := &HashJoinExec{
 		baseExecutor:  newBaseExecutor(b.ctx, v.Schema(), v.ExplainID(), leftExec, rightExec),

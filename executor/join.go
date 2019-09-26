@@ -16,6 +16,7 @@ package executor
 import (
 	"context"
 	"fmt"
+	"github.com/pingcap/tidb/executor/adaptor"
 	"github.com/pingcap/tidb/util/hashtable"
 	"hash/fnv"
 	"sync"
@@ -40,9 +41,9 @@ var (
 type ParallelHashExec struct {
 	baseExecutor
 
-	innerExec     Executor
+	InnerExec     Executor
 	innerEstCount float64
-	innerKeys     []*expression.Column
+	InnerKeys     []*expression.Column
 
 	// concurrency is the number of build workers
 	concurrency uint
@@ -59,6 +60,8 @@ type ParallelHashExec struct {
 	// used for close method to properly release channel resources
 	// default value is false. When the hashtable is built aright, it will be true.
 	prepared bool
+
+	Adaptor adaptor.Adaptor
 }
 
 type innerChkResource struct {
@@ -109,6 +112,19 @@ func (e *ParallelHashExec) Open(ctx context.Context) error {
 		return err
 	}
 
+	// Initiate Adaptor and invoke Adapt method to get strategy
+	e.Adaptor.InitAdaptor("HashJoin")
+	var ok bool
+	var hjAdaptor *adaptor.HashJoinAdapter
+	hjAdaptor, ok = e.Adaptor.(*adaptor.HashJoinAdapter)
+	if !ok {
+		return errors.Trace(errors.New("adaptor's type is not matched."))
+	}
+	hjAdaptor.SetStrategy(e.Adaptor.Adapt())
+	// Strategy initialization
+	hjAdaptor.GetStrategy().Init(ctx, e)
+
+	// Initiate components of ParallelHashExec
 	e.innerResultChs = make([]chan *innerResultChk, e.concurrency)
 	for i := uint(0); i < e.concurrency; i++ {
 		e.innerResultChs[i] = make(chan *innerResultChk, 1)
@@ -118,7 +134,7 @@ func (e *ParallelHashExec) Open(ctx context.Context) error {
 	for i := uint(0); i < e.concurrency; i++ {
 		e.innerChkResourceCh <- &innerChkResource{
 			innerChk: &innerResultChk{
-				chk:   newFirstChunk(e.innerExec),
+				chk:   newFirstChunk(e.InnerExec),
 				chkid: 0,
 			},
 			dest: e.innerResultChs[i],
@@ -128,11 +144,11 @@ func (e *ParallelHashExec) Open(ctx context.Context) error {
 	e.closeCh = make(chan struct{})
 
 	// initiate innerChkList for holding the chunks.
-	innerKeyColIdx := make([]int, len(e.innerKeys))
-	for i := range e.innerKeys {
-		innerKeyColIdx[i] = e.innerKeys[i].Index
+	innerKeyColIdx := make([]int, len(e.InnerKeys))
+	for i := range e.InnerKeys {
+		innerKeyColIdx[i] = e.InnerKeys[i].Index
 	}
-	allTypes := e.innerExec.base().retFieldTypes
+	allTypes := e.InnerExec.base().retFieldTypes
 	records := chunk.NewList(allTypes, e.initCap, e.maxChunkSize)
 	hCtx := &hashtable.HashContext{
 		AllTypes:  allTypes,
@@ -167,7 +183,7 @@ func (e *ParallelHashExec) fetchInnerRows(ctx context.Context, doneCh chan inter
 		}
 		innerChk := innerResource.innerChk
 		chk := innerChk.chk
-		err := Next(ctx, e.innerExec, chk)
+		err := Next(ctx, e.InnerExec, chk)
 		if err != nil {
 			e.innerFinished <- errors.Trace(err)
 			return
@@ -267,6 +283,9 @@ func (e *ParallelHashExec) buildHashTableForList(doneCh chan interface{}) (err e
 }
 
 func (e *ParallelHashExec) Next(ctx context.Context, req *chunk.Chunk) error {
+	// Strategy execution
+	e.Adaptor.GetStrategy().Exec(ctx, e, req)
+
 	doneCh := make(chan interface{})
 	go util.WithRecovery(func() { e.fetchInnerRows(ctx, doneCh) }, e.handleFetchInnerRows)
 
