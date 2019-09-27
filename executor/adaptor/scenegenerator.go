@@ -1,6 +1,9 @@
 package adaptor
 
-import "fmt"
+import (
+	"fmt"
+	"math"
+)
 
 //define scene generator
 type SceneGenerator interface {
@@ -15,24 +18,63 @@ type HashJoinSG struct {
 
 func (hjSG *HashJoinSG) GenScene(hwInfo *HardWareInfo, statsInfo *StatsInfo) Scene {
 	fmt.Println("analyze hardware information and statistic information and generate our own scene...")
-
-	// TODO:need to analyze the statistics
-	// analyze the balance of data. calculate variance of mcvFreqs
-	mcvCounts := statsInfo.mostCommonCounts
-	variance := getVariance(mcvCounts)
-	fmt.Println(variance)
-
-	hjSG.NDV = 1000
+	// analyze the balance of data. calculate variance of mostCommonCounts
+	var minBD, maxBD float64
+	if len(statsInfo.mostCommonCounts) > 0 {
+		balanceDegrees := make([]float64, 0, len(statsInfo.mostCommonCounts))
+		for i := range statsInfo.mostCommonCounts {
+			if len(statsInfo.mostCommonCounts[i]) > 0 {
+				bg := getVariance(statsInfo.mostCommonCounts[i])
+				balanceDegrees = append(balanceDegrees, bg)
+			}
+		}
+		if len(balanceDegrees) > 0 {
+			minBD = balanceDegrees[0]
+			maxBD = balanceDegrees[0]
+			for i := 1; i < len(balanceDegrees); i++ {
+				if balanceDegrees[i] < minBD {
+					minBD = balanceDegrees[i]
+				} else if balanceDegrees[i] > maxBD {
+					maxBD = balanceDegrees[i]
+				}
+			}
+		} else {
+			minBD = math.MaxFloat64
+			maxBD = math.MaxFloat64
+		}
+	}
+	// extract the max NDV from the NDVs
+	var maxNDV int64
+	if len(statsInfo.NDVs) > 0 {
+		NDVs := statsInfo.NDVs
+		maxNDV = NDVs[0]
+		for i := range NDVs {
+			if NDVs[i] > maxNDV {
+				maxNDV = NDVs[i]
+			}
+		}
+	} else {
+		maxNDV = statsInfo.relTupleNums
+	}
+	hjSG.NDV = maxNDV
 
 	scene := &HashJoinScene{
 		baseScene:     baseScene{statsInfo, hwInfo},
-		balanceDegree: []float32{variance, variance},
-		cpuUsageRate:  []float32{hwInfo.cpuUsageRate, hwInfo.cpuUsageRate},
-		memUsageRate:  []float32{hwInfo.memUsageRate, hwInfo.memUsageRate},
+		balanceDegree: []float64{minBD, maxBD},
+		cpuUsageRate:  []float64{hwInfo.cpuUsageRate, hwInfo.cpuUsageRate},
+		memUsageRate:  []float64{hwInfo.memUsageRate, hwInfo.memUsageRate},
 	}
 	return scene
 }
 
-func getVariance(mvcFreqs [][]int64) float32 {
-	return 0
+func getVariance(mcvCount []int64) float64 {
+	var quadraticSum float64
+	var sum float64
+	var count int64
+	for i := range mcvCount {
+		quadraticSum += mcvCount[i] * mcvCount[i]
+		sum += mcvCount[i]
+		count++
+	}
+	return quadraticSum/float64(count) - (sum*sum)/float64(count*count)
 }

@@ -10,7 +10,7 @@ type StatsInfo struct {
 	NDVs             []int64
 	mostCommonVals   [][]types.Datum
 	mostCommonCounts [][]int64
-	relTupleNums     []int64
+	relTupleNums     int64
 
 	//The histogram information of join keys.
 	//...
@@ -42,9 +42,9 @@ type HashJoinScene struct {
 
 	sceneName string
 
-	balanceDegree []float32
-	memUsageRate  []float32
-	cpuUsageRate  []float32
+	balanceDegree []float64
+	memUsageRate  []float64
+	cpuUsageRate  []float64
 }
 
 func (hs *HashJoinScene) CompareTo(scene Scene) bool {

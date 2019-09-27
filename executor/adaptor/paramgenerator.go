@@ -141,7 +141,7 @@ func (hjPG *HashJoinPG) GetStatistic() (*StatsInfo, error) {
 		NDVs:             make([]int64, 0),
 		mostCommonVals:   make([][]types.Datum, 0),
 		mostCommonCounts: make([][]int64, 0),
-		relTupleNums:     make([]int64, 0),
+		relTupleNums:     0,
 	}
 	if session, ok := hjPG.Ctx.(sqlexec.SQLExecutor); ok {
 		if phExec, ok := hjPG.E.(*executor.ParallelHashExec); ok {
@@ -203,8 +203,7 @@ func (hjPG *HashJoinPG) GetStatistic() (*StatsInfo, error) {
 					for _, chk := range chkList {
 						for i := 0; i < chk.NumRows(); i++ {
 							row := chk.GetRow(i)
-							relTupleNum := row.GetInt64(0)
-							stats.relTupleNums = append(stats.relTupleNums, relTupleNum)
+							stats.relTupleNums = row.GetInt64(0)
 						}
 					}
 				}
