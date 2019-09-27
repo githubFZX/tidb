@@ -120,7 +120,11 @@ func (e *ParallelHashExec) Open(ctx context.Context) error {
 	if !ok {
 		return errors.Trace(errors.New("adaptor's type is not matched."))
 	}
-	hjAdaptor.SetStrategy(e.Adaptor.Adapt())
+	strategy, err := e.Adaptor.Adapt()
+	if err != nil {
+		return err
+	}
+	hjAdaptor.SetStrategy(strategy)
 	// Strategy initialization
 	hjAdaptor.GetStrategy().Init(ctx, e)
 

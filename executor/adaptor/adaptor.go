@@ -5,7 +5,7 @@ import "fmt"
 //Adaptor is used to acquire strategies dynamically.
 type Adaptor interface {
 	InitAdaptor(name string)
-	Adapt() Strategy
+	Adapt() (Strategy, error)
 	GetStrategy() Strategy
 }
 
@@ -33,11 +33,16 @@ func (ba *BaseAdaptor) InitAdaptor(name string) {
 //2.Generate scene according to data characteristics, cpu information and memory information.
 //3.According to generated scene to match scene in the scene library.
 //4.Use mapper to get startegy what we should use.
-func (ba *BaseAdaptor) Adapt() Strategy {
+func (ba *BaseAdaptor) Adapt() (Strategy, error) {
 	fmt.Println("begin to get strategy...")
-
-	hwInfo := ba.pg.GetSystemState()
-	statsInfo := ba.pg.GetStatistic()
+	hwInfo, err := ba.pg.GetSystemState()
+	if err != nil {
+		return nil, err
+	}
+	statsInfo, err := ba.pg.GetStatistic()
+	if err != nil {
+		return nil, err
+	}
 
 	//analyze hardware information and statistics information to generate scene
 	//different sg(scene generator) has different analysis method
@@ -49,7 +54,7 @@ func (ba *BaseAdaptor) Adapt() Strategy {
 	}
 
 	strategy := ba.mapper.GetStrategy(matchedScene)
-	return strategy
+	return strategy, nil
 }
 
 func (ba *BaseAdaptor) GetStrategy() Strategy {

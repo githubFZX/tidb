@@ -15,9 +15,11 @@ type HashJoinSG struct {
 
 func (hjSG *HashJoinSG) GenScene(hwInfo *HardWareInfo, statsInfo *StatsInfo) Scene {
 	fmt.Println("analyze hardware information and statistic information and generate our own scene...")
+
+	// TODO:need to analyze the statistics
 	// analyze the balance of data. calculate variance of mcvFreqs
-	mcvFreqs := statsInfo.mostCommonFreqs
-	variance := getVariance(mcvFreqs)
+	mcvCounts := statsInfo.mostCommonCounts
+	variance := getVariance(mcvCounts)
 	fmt.Println(variance)
 
 	hjSG.NDV = 1000
@@ -31,6 +33,6 @@ func (hjSG *HashJoinSG) GenScene(hwInfo *HardWareInfo, statsInfo *StatsInfo) Sce
 	return scene
 }
 
-func getVariance(mvcFreqs []float32) float32 {
+func getVariance(mvcFreqs [][]int64) float32 {
 	return 0
 }

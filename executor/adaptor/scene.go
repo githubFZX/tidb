@@ -1,23 +1,26 @@
 package adaptor
 
-import "fmt"
+import (
+	"fmt"
+	"github.com/pingcap/tidb/types"
+)
 
 type StatsInfo struct {
-	nullCounts       int64
-	NDV              int64
-	mostCommonVals   []interface{}
-	mostCommonCounts []int64
-	relTupleNum      int64
+	nullCounts       []int64
+	NDVs             []int64
+	mostCommonVals   [][]types.Datum
+	mostCommonCounts [][]int64
+	relTupleNums     []int64
 
 	//The histogram information of join keys.
 	//...
 }
 
 type HardWareInfo struct {
-	cpuUsageRate float32
-	memUsageRate float32
-	memCap       float32
-
+	cpuUsageRate float64
+	memUsageRate float64
+	memCap       float64
+	availableMem float64
 	//other fields...
 	//...
 }
