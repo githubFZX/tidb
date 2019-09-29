@@ -17,7 +17,6 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"github.com/pingcap/tidb/executor/adaptor"
 	"math"
 	"sort"
 	"strings"
@@ -995,24 +994,8 @@ func (b *executorBuilder) buildHashJoin(v *plannercore.PhysicalHashJoin) Executo
 	}
 
 	// new a register to add initiation methods of ParamGenerator and SceneGenerator
-	register := adaptor.NewRegister()
-	// register initiation method of HashJoinParamGenerator and HashJoinSceneGenerator
-	register.Register("HashJoin", func() (pg adaptor.ParamGenerator, sg adaptor.SceneGenerator) {
-		if v.InnerChildIdx == 0 {
-			pg = &adaptor.HashJoinPG{
-				Ctx: leftExec.base().ctx,
-				E:   leftExec,
-			}
-		} else {
-			pg = &adaptor.HashJoinPG{
-				Ctx: leftExec.base().ctx,
-				E:   rightExec,
-			}
-		}
-		sg = new(adaptor.HashJoinSG)
-		return
-	})
-	hjAdaptor := new(adaptor.HashJoinAdapter)
+	register := NewRegister()
+	hjAdaptor := new(HashJoinAdapter)
 	hjAdaptor.BindingToAdaptor(register)
 
 	// Following codes are normal building flow of ParallelHashJoin and HashJoin
@@ -1040,6 +1023,23 @@ func (b *executorBuilder) buildHashJoin(v *plannercore.PhysicalHashJoin) Executo
 		}
 		rightExec = hashExec
 	}
+
+	// register initiation method of HashJoinParamGenerator and HashJoinSceneGenerator
+	register.Register("HashJoin", func() (pg ParamGenerator, sg SceneGenerator) {
+		if v.InnerChildIdx == 0 {
+			pg = &HashJoinPG{
+				Ctx: leftExec.base().ctx,
+				E:   leftExec,
+			}
+		} else {
+			pg = &HashJoinPG{
+				Ctx: rightExec.base().ctx,
+				E:   rightExec,
+			}
+		}
+		sg = new(HashJoinSG)
+		return
+	})
 
 	// [TODO]In this place, we could join adaptor to choose startegy.
 	// create HT of ParallelHashExec

@@ -1,4 +1,4 @@
-package adaptor
+package executor
 
 //..................................................................................
 //Define scene of HashJoin

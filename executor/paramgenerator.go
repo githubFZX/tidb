@@ -1,11 +1,10 @@
-package adaptor
+package executor
 
 import (
 	"bytes"
 	"context"
 	"fmt"
 	"github.com/pingcap/parser/mysql"
-	"github.com/pingcap/tidb/executor"
 	"github.com/pingcap/tidb/sessionctx"
 	"github.com/pingcap/tidb/types"
 	"github.com/pingcap/tidb/util/chunk"
@@ -27,12 +26,12 @@ type ParamGenerator interface {
 //Define our own ParamGenerator HashJoinPG, which implements the interface ParamGenerator.
 type HashJoinPG struct {
 	Ctx sessionctx.Context
-	E   executor.Executor
+	E   Executor
 }
 
 func (hjPG *HashJoinPG) GetSystemState() (*HardWareInfo, error) {
 	fmt.Println("get hardware information...")
-	processid := os.Getegid()
+	processid := os.Getpid()
 	cpuUsage, memUsage, err := getCpuAndMemUsageRate(processid)
 	if err != nil {
 		return nil, err
@@ -120,6 +119,8 @@ func getMemCap() (float64, float64, error) {
 				ft = append(ft, t)
 			}
 		}
+		ft[len(ft)-1] = strings.TrimRight(ft[len(ft)-1], "\n")
+
 		if ft[0] == "Mem" {
 			memCap, err = strconv.ParseFloat(ft[1], 64)
 			if err != nil {
@@ -144,9 +145,9 @@ func (hjPG *HashJoinPG) GetStatistic() (*StatsInfo, error) {
 		relTupleNums:     0,
 	}
 	if session, ok := hjPG.Ctx.(sqlexec.SQLExecutor); ok {
-		if phExec, ok := hjPG.E.(*executor.ParallelHashExec); ok {
+		if phExec, ok := hjPG.E.(*ParallelHashExec); ok {
 			innerChild := phExec.InnerExec
-			if innerTbl, ok := innerChild.(*executor.TableReaderExecutor); ok {
+			if innerTbl, ok := innerChild.(*TableReaderExecutor); ok {
 				innerTblInfo := innerTbl.GetTable().Meta()
 				innerTblPhyId := innerTblInfo.ID
 				innerTbleName := innerTblInfo.Name
@@ -168,17 +169,17 @@ func (hjPG *HashJoinPG) GetStatistic() (*StatsInfo, error) {
 					if err != nil {
 						return nil, err
 					}
-					mostCommonVals := make([]types.Datum, 0)
-					mostCommonCounts := make([]int64, 0)
+					mostCommonVal := make([]types.Datum, 0)
+					mostCommonCount := make([]int64, 0)
 					for _, chk := range chkList {
 						for i := 0; i < chk.NumRows(); i++ {
 							row := chk.GetRow(i)
-							mostCommonVals = append(mostCommonVals, row.GetDatum(0, types.NewFieldType(mysql.TypeLongBlob)))
-							mostCommonCounts = append(mostCommonCounts, row.GetInt64(1))
+							mostCommonVal = append(mostCommonVal, row.GetDatum(0, types.NewFieldType(mysql.TypeLongBlob)))
+							mostCommonCount = append(mostCommonCount, row.GetInt64(1))
 						}
 					}
-					stats.mostCommonVals = append(stats.mostCommonVals, mostCommonVals)
-					stats.mostCommonCounts = append(stats.mostCommonCounts, mostCommonCounts)
+					stats.mostCommonVals = append(stats.mostCommonVals, mostCommonVal)
+					stats.mostCommonCounts = append(stats.mostCommonCounts, mostCommonCount)
 
 					// get joinkeys' statistics info of null counts and get joinkeys' statistics info of NDV
 					sql = fmt.Sprint("select distinct_count, null_count from mysql.stats_histograms where table_id = ", innerTblPhyId,

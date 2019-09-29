@@ -1,18 +1,17 @@
-package adaptor
+package executor
 
 import (
 	"context"
 	"fmt"
 	"github.com/pingcap/errors"
-	"github.com/pingcap/tidb/executor"
 	"github.com/pingcap/tidb/util/chunk"
 	"github.com/pingcap/tidb/util/hashtable"
 )
 
 //define startegy
 type Strategy interface {
-	Init(ctx context.Context, e executor.Executor) error
-	Exec(ctx context.Context, e executor.Executor, req *chunk.Chunk) error
+	Init(ctx context.Context, e Executor) error
+	Exec(ctx context.Context, e Executor, req *chunk.Chunk) error
 }
 
 type baseStrategy struct {
@@ -25,8 +24,8 @@ type SharedHTStrategy struct {
 	baseStrategy
 }
 
-func (shHTStra *SharedHTStrategy) Init(ctx context.Context, e executor.Executor) error {
-	phExec, ok := e.(*executor.ParallelHashExec)
+func (shHTStra *SharedHTStrategy) Init(ctx context.Context, e Executor) error {
+	phExec, ok := e.(*ParallelHashExec)
 	if !ok {
 		return errors.Trace(errors.New("Executor's type is not matched."))
 	}
@@ -45,7 +44,7 @@ func (shHTStra *SharedHTStrategy) Init(ctx context.Context, e executor.Executor)
 	return nil
 }
 
-func (shHTStra *SharedHTStrategy) Exec(ctx context.Context, e executor.Executor, req *chunk.Chunk) error {
+func (shHTStra *SharedHTStrategy) Exec(ctx context.Context, e Executor, req *chunk.Chunk) error {
 	fmt.Println("strategy named shared hash table is executing...")
 	return nil
 }

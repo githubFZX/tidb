@@ -16,7 +16,6 @@ package executor
 import (
 	"context"
 	"fmt"
-	"github.com/pingcap/tidb/executor/adaptor"
 	"github.com/pingcap/tidb/util/hashtable"
 	"hash/fnv"
 	"sync"
@@ -61,7 +60,7 @@ type ParallelHashExec struct {
 	// default value is false. When the hashtable is built aright, it will be true.
 	prepared bool
 
-	Adaptor adaptor.Adaptor
+	Adaptor Adaptor
 }
 
 type innerChkResource struct {
@@ -115,8 +114,8 @@ func (e *ParallelHashExec) Open(ctx context.Context) error {
 	// Initiate Adaptor and invoke Adapt method to get strategy
 	e.Adaptor.InitAdaptor("HashJoin")
 	var ok bool
-	var hjAdaptor *adaptor.HashJoinAdapter
-	hjAdaptor, ok = e.Adaptor.(*adaptor.HashJoinAdapter)
+	var hjAdaptor *HashJoinAdapter
+	hjAdaptor, ok = e.Adaptor.(*HashJoinAdapter)
 	if !ok {
 		return errors.Trace(errors.New("adaptor's type is not matched."))
 	}

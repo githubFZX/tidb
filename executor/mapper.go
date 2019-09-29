@@ -1,4 +1,4 @@
-package adaptor
+package executor
 
 import "fmt"
 
@@ -20,14 +20,17 @@ func (mapper *Mapper) InitMapper() {
 }
 
 //match generated scene with scene of scene library
-func (mapper *Mapper) MatchScene(scene Scene) (Scene, bool) {
+func (mapper *Mapper) MatchScene(scene Scene) (Scene, error) {
 	fmt.Println("scene matching...")
 	for _, sc := range mapper.SceneLib {
-		if sc.CompareTo(scene) {
-			return sc, true
+		ok, err := sc.CompareTo(scene)
+		if err != nil {
+			return nil, err
+		} else if ok {
+			return sc, nil
 		}
 	}
-	return nil, false
+	return nil, nil
 }
 
 //according to matched scene to find matched strategy by mapper.

@@ -1,6 +1,8 @@
-package adaptor
+package executor
 
-import "fmt"
+import (
+	"fmt"
+)
 
 //Adaptor is used to acquire strategies dynamically.
 type Adaptor interface {
@@ -48,9 +50,12 @@ func (ba *BaseAdaptor) Adapt() (Strategy, error) {
 	//different sg(scene generator) has different analysis method
 	scene := ba.sg.GenScene(hwInfo, statsInfo)
 
-	matchedScene, ok := ba.mapper.MatchScene(scene)
-	if !ok {
-		panic("All scenes are matched failed!")
+	matchedScene, err := ba.mapper.MatchScene(scene)
+	if err != nil {
+		return nil, err
+	} else if matchedScene == nil {
+		// use the first default strategy
+		return ba.mapper.StrategyLib[0], nil
 	}
 
 	strategy := ba.mapper.GetStrategy(matchedScene)

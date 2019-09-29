@@ -1,4 +1,4 @@
-package adaptor
+package executor
 
 import (
 	"fmt"
