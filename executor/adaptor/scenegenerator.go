@@ -72,9 +72,10 @@ func getVariance(mcvCount []int64) float64 {
 	var sum float64
 	var count int64
 	for i := range mcvCount {
-		quadraticSum += mcvCount[i] * mcvCount[i]
-		sum += mcvCount[i]
+		quadraticSum += float64(mcvCount[i] * mcvCount[i])
+		sum += float64(mcvCount[i])
 		count++
 	}
-	return quadraticSum/float64(count) - (sum*sum)/float64(count*count)
+	result := quadraticSum/float64(count) - (sum*sum)/float64(count*count)
+	return result
 }

@@ -6,9 +6,9 @@ package adaptor
 var sharedHTScene Scene = &HashJoinScene{
 	sceneName: "sharedHTScene",
 
-	balanceDegree: []float64{0.1, 0.2},
-	memUsageRate:  []float64{0.2, 0.3},
-	cpuUsageRate:  []float64{0.1, 0.6},
+	balanceDegree: []float64{0, 1},
+	memUsageRate:  []float64{0, 1},
+	cpuUsageRate:  []float64{0, 1},
 }
 
 //..................................................................................

@@ -2,6 +2,7 @@ package adaptor
 
 import (
 	"fmt"
+	"github.com/pingcap/errors"
 	"github.com/pingcap/tidb/types"
 )
 
@@ -27,7 +28,7 @@ type HardWareInfo struct {
 
 //define scene
 type Scene interface {
-	CompareTo(scene Scene) bool
+	CompareTo(scene Scene) (bool, error)
 }
 
 type baseScene struct {
@@ -47,11 +48,18 @@ type HashJoinScene struct {
 	cpuUsageRate  []float64
 }
 
-func (hs *HashJoinScene) CompareTo(scene Scene) bool {
+func (hs *HashJoinScene) CompareTo(scene Scene) (bool, error) {
 	fmt.Println("compare our own scene with scene lib...")
-	tempHS, ok := scene.(*HashJoinScene)
-	if ok {
-		fmt.Println(tempHS)
+	hjScene, ok := scene.(*HashJoinScene)
+	if !ok {
+		return false, errors.Trace(errors.New("Scene's type is not matched."))
 	}
-	return false
+	if hjScene.balanceDegree[0] >= hs.balanceDegree[0] && hjScene.balanceDegree[1] <= hs.balanceDegree[1] {
+		if hjScene.cpuUsageRate[0] >= hs.cpuUsageRate[0] && hjScene.cpuUsageRate[1] <= hs.cpuUsageRate[1] {
+			if hjScene.memUsageRate[0] >= hs.memUsageRate[0] && hjScene.memUsageRate[1] <= hs.memUsageRate[1] {
+				return true, nil
+			}
+		}
+	}
+	return false, nil
 }
