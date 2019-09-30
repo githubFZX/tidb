@@ -2,6 +2,9 @@ package hashtable
 
 import (
 	"bytes"
+	"encoding/binary"
+	"encoding/gob"
+	"github.com/pingcap/tidb/util/chunk"
 	"sync"
 )
 
@@ -275,4 +278,33 @@ func (h *hmap) Get(k []byte) [][]byte {
 
 func (h *hmap) Len() uint64 {
 	return h.count
+}
+
+func EncodeKeyToByte(k uint64) []byte {
+	keyBuf := make([]byte, 8)
+	binary.BigEndian.PutUint64(keyBuf, k)
+	return keyBuf
+}
+
+func DecodeKeyFromByte(k []byte) uint64 {
+	return binary.BigEndian.Uint64(k)
+}
+
+func EncodeValToByte(v chunk.RowPtr) ([]byte, error) {
+	buf := new(bytes.Buffer)
+	err := gob.NewEncoder(buf).Encode(v)
+	if err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
+func DecodeValFromByte(v []byte) (chunk.RowPtr, error) {
+	decoder := gob.NewDecoder(bytes.NewReader(v))
+	var val chunk.RowPtr
+	err := decoder.Decode(&val)
+	if err != nil {
+		return chunk.RowPtr{}, err
+	}
+	return val, nil
 }

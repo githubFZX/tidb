@@ -1,9 +1,8 @@
 package hashtable
 
 import (
-	"bytes"
-	"encoding/binary"
-	"encoding/gob"
+	"github.com/pingcap/errors"
+	"github.com/pingcap/tidb/sessionctx"
 	"github.com/pingcap/tidb/sessionctx/stmtctx"
 	"github.com/pingcap/tidb/types"
 	"github.com/pingcap/tidb/util/chunk"
@@ -12,7 +11,7 @@ import (
 )
 
 // all strategy's conrresponding hashtable must implements interface HasthTable
-type HashTable interface {
+/*type HashTable interface {
 	Put(k, v []byte) bool
 	Get(k []byte) [][]byte
 	Len() uint64
@@ -98,11 +97,6 @@ func (c *HashContainer) GetMatchedRows(probeRow chunk.Row, hCtx *HashContext) (m
 		}
 		matched = append(matched, matchedRow)
 	}
-	/* TODO(fengliyuan): add test case in this case
-	if len(matched) == 0 {
-		// noop
-	}
-	*/
 	return
 }
 
@@ -119,5 +113,121 @@ func (c *HashContainer) GetJoinKeyFromChkRow(sc *stmtctx.StatementContext, row c
 }
 
 func (c *HashContainer) Len() uint64 {
+	return c.HT.Len()
+}*/
+
+type HashTable interface {
+	Put(hashKey uint64, rowPtr chunk.RowPtr)
+	Get(hashKey uint64) (rowPtrs []chunk.RowPtr)
+	Len() int
+}
+
+// hashContext keeps the needed hash context of a db table in hash join.
+type HashContext struct {
+	AllTypes  []*types.FieldType
+	KeyColIdx []int
+	H         hash.Hash64
+	Buf       []byte
+}
+
+type HashContainer struct {
+	Records *chunk.List
+	HT      HashTable
+
+	SC   *stmtctx.StatementContext
+	HCtx *HashContext
+}
+
+func newHashRowContainer(sctx sessionctx.Context, estCount int, hCtx *hashContext, initList *chunk.List) *hashRowContainer {
+	maxChunkSize := sctx.GetSessionVars().MaxChunkSize
+	// The estCount from cost model is not quite accurate and we need
+	// to avoid that it's too large to consume redundant memory.
+	// So I invent a rough protection, firstly divide it by estCountDivisor
+	// then set a maximum threshold and a minimum threshold.
+	estCount /= estCountDivisor
+	if estCount > maxChunkSize*estCountMaxFactor {
+		estCount = maxChunkSize * estCountMaxFactor
+	}
+	if estCount < maxChunkSize*estCountMinFactor {
+		estCount = 0
+	}
+	c := &hashRowContainer{
+		records:   initList,
+		hashTable: newRowHashMap(estCount),
+
+		sc:   sctx.GetSessionVars().StmtCtx,
+		hCtx: hCtx,
+	}
+	return c
+}
+
+// matchJoinKey checks if join keys of buildRow and probeRow are logically equal.
+func (c *HashContainer) matchJoinKey(buildRow, probeRow chunk.Row, probeHCtx *HashContext) (ok bool, err error) {
+	return codec.EqualChunkRow(c.SC,
+		buildRow, c.HCtx.AllTypes, c.HCtx.KeyColIdx,
+		probeRow, probeHCtx.AllTypes, probeHCtx.KeyColIdx)
+}
+
+func (c *HashContainer) GetMatchedRows(probeRow chunk.Row, hCtx *HashContext) (matched []chunk.Row, err error) {
+	hasNull, key, err := c.GetJoinKeyFromChkRow(c.SC, probeRow, hCtx)
+	if err != nil || hasNull {
+		return
+	}
+	innerPtrs := c.HT.Get(key)
+	if len(innerPtrs) == 0 {
+		return
+	}
+	matched = make([]chunk.Row, 0, len(innerPtrs))
+	for _, ptr := range innerPtrs {
+		matchedRow := c.Records.GetRow(ptr)
+		var ok bool
+		ok, err = c.matchJoinKey(matchedRow, probeRow, hCtx)
+		if err != nil {
+			return
+		}
+		if !ok {
+			continue
+		}
+		matched = append(matched, matchedRow)
+	}
+	return
+}
+
+func (c *HashContainer) PutChunk(chk *chunk.Chunk) error {
+	chkIdx := uint32(c.Records.NumChunks())
+	c.Records.Add(chk)
+	var (
+		hasNull bool
+		err     error
+		key     uint64
+	)
+	numRows := chk.NumRows()
+	for j := 0; j < numRows; j++ {
+		hasNull, key, err = c.GetJoinKeyFromChkRow(c.SC, chk.GetRow(j), c.HCtx)
+		if err != nil {
+			return errors.Trace(err)
+		}
+		if hasNull {
+			continue
+		}
+		rowPtr := chunk.RowPtr{ChkIdx: chkIdx, RowIdx: uint32(j)}
+		c.HT.Put(key, rowPtr)
+	}
+	return nil
+}
+
+// getJoinKeyFromChkRow fetches join keys from row and calculate the hash value.
+func (c *HashContainer) GetJoinKeyFromChkRow(sc *stmtctx.StatementContext, row chunk.Row, hCtx *HashContext) (hasNull bool, key uint64, err error) {
+	for _, i := range hCtx.KeyColIdx {
+		if row.IsNull(i) {
+			return true, 0, nil
+		}
+	}
+	hCtx.H.Reset()
+	err = codec.HashChunkRow(sc, hCtx.H, row, hCtx.AllTypes, hCtx.KeyColIdx, hCtx.Buf)
+	return false, hCtx.H.Sum64(), err
+}
+
+func (c *HashContainer) Len() int {
 	return c.HT.Len()
 }
