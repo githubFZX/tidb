@@ -117,8 +117,8 @@ func (c *HashContainer) Len() uint64 {
 }*/
 
 type HashTable interface {
-	Put(hashKey uint64, rowPtr chunk.RowPtr)
-	Get(hashKey uint64) (rowPtrs []chunk.RowPtr)
+	Put(hashKey uint64, rowPtr chunk.RowPtr) error
+	Get(hashKey uint64) (rowPtrs []chunk.RowPtr, err error)
 	Len() int
 }
 
@@ -138,25 +138,15 @@ type HashContainer struct {
 	HCtx *HashContext
 }
 
-func newHashRowContainer(sctx sessionctx.Context, estCount int, hCtx *hashContext, initList *chunk.List) *hashRowContainer {
-	maxChunkSize := sctx.GetSessionVars().MaxChunkSize
-	// The estCount from cost model is not quite accurate and we need
-	// to avoid that it's too large to consume redundant memory.
-	// So I invent a rough protection, firstly divide it by estCountDivisor
-	// then set a maximum threshold and a minimum threshold.
-	estCount /= estCountDivisor
-	if estCount > maxChunkSize*estCountMaxFactor {
-		estCount = maxChunkSize * estCountMaxFactor
-	}
-	if estCount < maxChunkSize*estCountMinFactor {
-		estCount = 0
-	}
-	c := &hashRowContainer{
-		records:   initList,
-		hashTable: newRowHashMap(estCount),
-
-		sc:   sctx.GetSessionVars().StmtCtx,
-		hCtx: hCtx,
+func NewHashContainer(initList *chunk.List, ht HashTable, sctx sessionctx.Context, hCtx *HashContext) *HashContainer {
+	// move original estimation of estCount to Strategy.go
+	// ...
+	// new a HashContainer
+	c := &HashContainer{
+		Records:   initList,
+		HT: ht,
+		SC:   sctx.GetSessionVars().StmtCtx,
+		HCtx: hCtx,
 	}
 	return c
 }
@@ -173,7 +163,10 @@ func (c *HashContainer) GetMatchedRows(probeRow chunk.Row, hCtx *HashContext) (m
 	if err != nil || hasNull {
 		return
 	}
-	innerPtrs := c.HT.Get(key)
+	innerPtrs, err := c.HT.Get(key)
+	if err != nil {
+		return
+	}
 	if len(innerPtrs) == 0 {
 		return
 	}
@@ -193,7 +186,7 @@ func (c *HashContainer) GetMatchedRows(probeRow chunk.Row, hCtx *HashContext) (m
 	return
 }
 
-func (c *HashContainer) PutChunk(chk *chunk.Chunk) error {
+func (c *HashContainer) PutChunk(chk *chunk.Chunk, hCtx *HashContext) error {
 	chkIdx := uint32(c.Records.NumChunks())
 	c.Records.Add(chk)
 	var (
@@ -203,7 +196,7 @@ func (c *HashContainer) PutChunk(chk *chunk.Chunk) error {
 	)
 	numRows := chk.NumRows()
 	for j := 0; j < numRows; j++ {
-		hasNull, key, err = c.GetJoinKeyFromChkRow(c.SC, chk.GetRow(j), c.HCtx)
+		hasNull, key, err = c.GetJoinKeyFromChkRow(c.SC, chk.GetRow(j), hCtx)
 		if err != nil {
 			return errors.Trace(err)
 		}

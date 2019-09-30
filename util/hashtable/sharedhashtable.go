@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"encoding/gob"
+	"errors"
 	"github.com/pingcap/tidb/util/chunk"
 	"sync"
 )
@@ -195,7 +196,7 @@ func (h *hmap) insert(bs *bstate, b *bmap, bi int, k, v []byte, topHash uint8, i
 }
 
 // put key value pair to map
-func (h *hmap) Put(k, v []byte) bool {
+func (h *hmap) PutKV(k, v []byte) bool {
 	hash := FnvHash64(k)
 
 	// get bucketMask and calculate bucket position
@@ -240,7 +241,7 @@ bucketloop:
 	return true
 }
 
-func (h *hmap) Get(k []byte) [][]byte {
+func (h *hmap) GetV(k []byte) [][]byte {
 	var vals [][]byte
 
 	hash := FnvHash64(k)
@@ -276,7 +277,7 @@ func (h *hmap) Get(k []byte) [][]byte {
 	return vals
 }
 
-func (h *hmap) Len() uint64 {
+func (h *hmap) MapLen() uint64 {
 	return h.count
 }
 
@@ -307,4 +308,36 @@ func DecodeValFromByte(v []byte) (chunk.RowPtr, error) {
 		return chunk.RowPtr{}, err
 	}
 	return val, nil
+}
+
+func (h *hmap) Put(hashKey uint64, rowPtr chunk.RowPtr) error {
+	// put key, value byte stream into sharedHT
+	keyStream := EncodeKeyToByte(hashKey)
+	valStream, err := EncodeValToByte(rowPtr)
+	if err != nil {
+		return err
+	}
+	ok = h.PutKV(keyStream, valStream)
+	if !ok {
+		return errors.New("failing to put key value pair")
+	}
+	return nil
+}
+
+func (h *hmap) Get(hashKey uint64) (rowPtrs []chunk.RowPtr, err error){
+	keyStream := EncodeKeyToByte(hashKey)
+	valStreams := h.GetV(keyStream)
+	for _, valStream := range valStreams {
+		var rowPtr chunk.RowPtr
+		rowPtr, err = DecodeValFromByte(valStream)
+		if err != nil {
+			return
+		}
+		rowPtrs = append(rowPtrs, rowPtr)
+	}
+	return
+}
+
+func (h *hmap) Len() int {
+	return int(h.MapLen())
 }

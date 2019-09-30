@@ -65,7 +65,7 @@ type rowHashMap struct {
 
 // newRowHashMap creates a new rowHashMap. estCount means the estimated size of the hashMap.
 // If unknown, set it to 0.
-func newRowHashMap(estCount int) *rowHashMap {
+func NewRowHashMap(estCount int) *rowHashMap {
 	m := new(rowHashMap)
 	m.hashTable = make(map[uint64]entryAddr, estCount)
 	m.entryStore.init()
@@ -73,7 +73,7 @@ func newRowHashMap(estCount int) *rowHashMap {
 }
 
 // Put puts the key/rowPtr pairs to the rowHashMap, multiple rowPtrs are stored in a list.
-func (m *rowHashMap) Put(hashKey uint64, rowPtr chunk.RowPtr) {
+func (m *rowHashMap) Put(hashKey uint64, rowPtr chunk.RowPtr) error {
 	oldEntryAddr := m.hashTable[hashKey]
 	e := entry{
 		ptr:  rowPtr,
@@ -82,10 +82,11 @@ func (m *rowHashMap) Put(hashKey uint64, rowPtr chunk.RowPtr) {
 	newEntryAddr := m.entryStore.put(e)
 	m.hashTable[hashKey] = newEntryAddr
 	m.length++
+	return nil
 }
 
 // Get gets the values of the "key" and appends them to "values".
-func (m *rowHashMap) Get(hashKey uint64) (rowPtrs []chunk.RowPtr) {
+func (m *rowHashMap) Get(hashKey uint64) (rowPtrs []chunk.RowPtr, err error) {
 	entryAddr := m.hashTable[hashKey]
 	for entryAddr != nullEntryAddr {
 		e := m.entryStore.get(entryAddr)
@@ -97,7 +98,7 @@ func (m *rowHashMap) Get(hashKey uint64) (rowPtrs []chunk.RowPtr) {
 		j := len(rowPtrs) - 1 - i
 		rowPtrs[i], rowPtrs[j] = rowPtrs[j], rowPtrs[i]
 	}
-	return
+	return rowPtrs, err
 }
 
 // Len returns the number of rowPtrs in the rowHashMap, the number of keys may be less than Len

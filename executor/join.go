@@ -161,12 +161,7 @@ func (e *ParallelHashExec) Open(ctx context.Context) error {
 	}
 
 	// In this place, we let e.hashContainer's HT
-	e.HC = &hashtable.HashContainer{
-		Records: records,
-		HT:      e.HT,
-		SC:      e.ctx.GetSessionVars().StmtCtx,
-		HCtx:    hCtx,
-	}
+	e.HC = hashtable.NewHashContainer(records, e.HT, e.base().ctx, hCtx)
 	return nil
 }
 
@@ -234,26 +229,21 @@ func (e *ParallelHashExec) runBuildWorker(workerId uint, doneCh chan interface{}
 		// insert into hashtable
 		chk := innerChk.chk
 		chkid := innerChk.chkid
-		numRows := chk.NumRows()
-		for i := 0; i < numRows; i++ {
-			hasNull, key, err := e.HC.GetJoinKeyFromChkRow(e.HC.SC, chk.GetRow(i), e.HC.HCtx)
-			if err != nil {
-				e.innerFinished <- errors.Trace(err)
-				return
-			}
-			if hasNull {
-				continue
-			}
-			rowPtr := chunk.RowPtr{ChkIdx: uint32(chkid), RowIdx: uint32(i)}
-			// put key, value byte starem into sharedHT
-			keyStream := hashtable.EncodeKeyToByte(key)
-			valStream, err := hashtable.EncodeValToByte(rowPtr)
-			if err != nil {
-				e.innerFinished <- errors.Trace(err)
-				return
-			}
-			e.HC.HT.Put(keyStream, valStream)
+
+		// consturct a new hCtx for building hashtable parallel
+		innerKeyColIdx := make([]int, len(e.InnerKeys))
+		for i := range e.InnerKeys {
+			innerKeyColIdx[i] = e.InnerKeys[i].Index
 		}
+		allTypes := e.InnerExec.base().retFieldTypes
+		hCtx := &hashtable.HashContext{
+			AllTypes:  allTypes,
+			KeyColIdx: innerKeyColIdx,
+			H:         fnv.New64(),
+			Buf:       make([]byte, 1),
+		}
+		e.HC.PutChunk(chk, hCtx)
+
 		innerChk.chk.Reset()
 		innerChk.chkid = 0
 		emptyInnerResult.innerChk = innerChk
@@ -402,6 +392,7 @@ func (e *HashJoinExec) Open(ctx context.Context) error {
 	// In executor builder, we create hashtable of ParallelHashExec
 	// In ParallelHashExec's Open method, we join the ParallelHashExec's HT to ParallelHashExec's HC
 	// In this place, we let e.hashContainer point to the same HashContainer with ParallelHashExec's
+	// note: HashJoinExec only use the fields 'Records' and 'HT'.
 	if pe, ok := e.children[0].(*ParallelHashExec); ok {
 		e.hashContainer = pe.HC
 	} else {
