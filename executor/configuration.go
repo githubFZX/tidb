@@ -6,7 +6,7 @@ package executor
 var sharedHTScene Scene = &HashJoinScene{
 	sceneName: "sharedHTScene",
 
-	balanceDegree: []float64{0, 1},
+	balanceDegree: []float64{0, 0.5},
 	memUsageRate:  []float64{0, 1},
 	cpuUsageRate:  []float64{0, 1},
 }
@@ -14,7 +14,7 @@ var sharedHTScene Scene = &HashJoinScene{
 var mvmapScene Scene = &HashJoinScene{
 	sceneName: "mvmapScene",
 
-	balanceDegree: []float64{0, 1},
+	balanceDegree: []float64{0.5, 1},
 	memUsageRate:  []float64{0, 1},
 	cpuUsageRate:  []float64{0, 1},
 }
@@ -23,8 +23,8 @@ var mvmapScene Scene = &HashJoinScene{
 //Define scene library of hashJoin
 //Join above scene belongs to hashJoin to hashjoin scene library.
 var HashJoinSceneLib []Scene = []Scene{
-	sharedHTScene,
 	mvmapScene,
+	sharedHTScene,
 }
 
 //..................................................................................
@@ -36,7 +36,7 @@ var sharedHT Strategy = &SharedHTStrategy{
 	},
 }
 
-var mvmap Strategy = &SharedHTStrategy{
+var mvMap Strategy = &SharedHTStrategy{
 	baseStrategy{
 		"mvmap",
 	},
@@ -47,12 +47,12 @@ var mvmap Strategy = &SharedHTStrategy{
 //Join above strategy belongs to hashJoin to hashjoin scene library.
 var HashJoinStrategyLib []Strategy = []Strategy{
 	sharedHT,
-	mvmap,
+	mvMap,
 }
 
 //..................................................................................
 //Define mapper relation between scene and strategy.
 var HashJoinMapper map[Scene][]Strategy = map[Scene][]Strategy{
 	sharedHTScene: {sharedHT},
-	mvmapScene: {mvmap},
+	mvmapScene:    {mvMap},
 }

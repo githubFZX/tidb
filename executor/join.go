@@ -208,6 +208,20 @@ func (e *ParallelHashExec) handleFetchInnerRows(r interface{}) {
 }
 
 func (e *ParallelHashExec) runBuildWorker(workerId uint, doneCh chan interface{}) {
+	// consturct a new hCtx for building hashtable parallel
+	innerKeyColIdx := make([]int, len(e.InnerKeys))
+	for i := range e.InnerKeys {
+		innerKeyColIdx[i] = e.InnerKeys[i].Index
+	}
+	allTypes := e.InnerExec.base().retFieldTypes
+	// every buildWorker's hctx must be independent. Because we need to use 'Buf' to get join key from row.
+	hCtx := &hashtable.HashContext{
+		AllTypes:  allTypes,
+		KeyColIdx: innerKeyColIdx,
+		H:         fnv.New64(),
+		Buf:       make([]byte, 1),
+	}
+
 	// this place is very important
 	emptyInnerResult := &innerChkResource{
 		dest: e.innerResultChs[workerId],
@@ -230,19 +244,7 @@ func (e *ParallelHashExec) runBuildWorker(workerId uint, doneCh chan interface{}
 		chk := innerChk.chk
 		chkid := innerChk.chkid
 
-		// consturct a new hCtx for building hashtable parallel
-		innerKeyColIdx := make([]int, len(e.InnerKeys))
-		for i := range e.InnerKeys {
-			innerKeyColIdx[i] = e.InnerKeys[i].Index
-		}
-		allTypes := e.InnerExec.base().retFieldTypes
-		hCtx := &hashtable.HashContext{
-			AllTypes:  allTypes,
-			KeyColIdx: innerKeyColIdx,
-			H:         fnv.New64(),
-			Buf:       make([]byte, 1),
-		}
-		e.HC.PutChunk(chk, hCtx)
+		e.HC.PutChunk(chk, hCtx, chkid)
 
 		innerChk.chk.Reset()
 		innerChk.chkid = 0
@@ -571,6 +573,8 @@ func (e *HashJoinExec) runJoinWorker(workerID uint, outerKeyColIdx []int) {
 	emptyOuterResult := &outerChkResource{
 		dest: e.outerResultChs[workerID],
 	}
+
+	// every joinWorker's hctx must be independent. Because we need to use 'Buf' to get join key from row.
 	hCtx := &hashtable.HashContext{
 		AllTypes:  retTypes(e.outerExec),
 		KeyColIdx: outerKeyColIdx,

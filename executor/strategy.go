@@ -41,6 +41,9 @@ func (shHTStra *SharedHTStrategy) Init(ctx context.Context, e Executor) error {
 	// create SharedHT
 	sharedHT := hashtable.NewMap(NDV)
 	phExec.HT = sharedHT
+
+	// set concurrency of buildWorker. Default value is 1.
+	phExec.concurrency = 4
 	return nil
 }
 
@@ -48,7 +51,6 @@ func (shHTStra *SharedHTStrategy) Exec(ctx context.Context, e Executor, req *chu
 	fmt.Println("strategy named shared hash table is executing...")
 	return nil
 }
-
 
 type MVMapStrategy struct {
 	baseStrategy
@@ -92,11 +94,13 @@ func (mvStra *MVMapStrategy) Init(ctx context.Context, e Executor) error {
 	}
 	mvmap := hashtable.NewRowHashMap(estCount)
 	phExec.HT = mvmap
+
+	// set concurrency of buildWorker. Default value is 1.
+	phExec.concurrency = 1
 	return nil
 }
 
 func (mvStra *MVMapStrategy) Exec(ctx context.Context, e Executor, req *chunk.Chunk) error {
-		fmt.Println("strategy named mvmap is executing...")
+	fmt.Println("strategy named mvmap is executing...")
 	return nil
 }
-

@@ -143,10 +143,10 @@ func NewHashContainer(initList *chunk.List, ht HashTable, sctx sessionctx.Contex
 	// ...
 	// new a HashContainer
 	c := &HashContainer{
-		Records:   initList,
-		HT: ht,
-		SC:   sctx.GetSessionVars().StmtCtx,
-		HCtx: hCtx,
+		Records: initList,
+		HT:      ht,
+		SC:      sctx.GetSessionVars().StmtCtx,
+		HCtx:    hCtx,
 	}
 	return c
 }
@@ -186,9 +186,7 @@ func (c *HashContainer) GetMatchedRows(probeRow chunk.Row, hCtx *HashContext) (m
 	return
 }
 
-func (c *HashContainer) PutChunk(chk *chunk.Chunk, hCtx *HashContext) error {
-	chkIdx := uint32(c.Records.NumChunks())
-	c.Records.Add(chk)
+func (c *HashContainer) PutChunk(chk *chunk.Chunk, hCtx *HashContext, chkId int) error {
 	var (
 		hasNull bool
 		err     error
@@ -203,7 +201,7 @@ func (c *HashContainer) PutChunk(chk *chunk.Chunk, hCtx *HashContext) error {
 		if hasNull {
 			continue
 		}
-		rowPtr := chunk.RowPtr{ChkIdx: chkIdx, RowIdx: uint32(j)}
+		rowPtr := chunk.RowPtr{ChkIdx: uint32(chkId), RowIdx: uint32(j)}
 		c.HT.Put(key, rowPtr)
 	}
 	return nil

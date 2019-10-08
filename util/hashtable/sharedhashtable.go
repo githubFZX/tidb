@@ -317,14 +317,14 @@ func (h *hmap) Put(hashKey uint64, rowPtr chunk.RowPtr) error {
 	if err != nil {
 		return err
 	}
-	ok = h.PutKV(keyStream, valStream)
+	ok := h.PutKV(keyStream, valStream)
 	if !ok {
 		return errors.New("failing to put key value pair")
 	}
 	return nil
 }
 
-func (h *hmap) Get(hashKey uint64) (rowPtrs []chunk.RowPtr, err error){
+func (h *hmap) Get(hashKey uint64) (rowPtrs []chunk.RowPtr, err error) {
 	keyStream := EncodeKeyToByte(hashKey)
 	valStreams := h.GetV(keyStream)
 	for _, valStream := range valStreams {
