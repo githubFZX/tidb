@@ -36,15 +36,15 @@ func (hjPG *HashJoinPG) GetSystemState() (*HardWareInfo, error) {
 	if err != nil {
 		return nil, err
 	}
-	memCap, availableMem, err := getMemCap()
+	/*memCap, availableMem, err := getMemCap()
 	if err != nil {
 		return nil, err
-	}
+	}*/
 	return &HardWareInfo{
 		cpuUsageRate: cpuUsage,
 		memUsageRate: memUsage,
-		memCap:       memCap,
-		availableMem: availableMem,
+		//memCap:       memCap,
+		//availableMem: availableMem,
 	}, nil
 }
 
@@ -137,6 +137,7 @@ func getMemCap() (float64, float64, error) {
 }
 
 func (hjPG *HashJoinPG) GetStatistic() (*StatsInfo, error) {
+	fmt.Println("get statistics information...")
 	stats := &StatsInfo{
 		nullCounts:       make([]int64, 0),
 		NDVs:             make([]int64, 0),

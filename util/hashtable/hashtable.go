@@ -164,6 +164,9 @@ func (c *HashContainer) GetMatchedRows(probeRow chunk.Row, hCtx *HashContext) (m
 		return
 	}
 	innerPtrs, err := c.HT.Get(key)
+	/*if len(innerPtrs) > 0 && len(innerPtrs) != 1024 {
+		fmt.Println("key:", probeRow.GetInt64(0), "len of vals:", len(innerPtrs))
+	}*/
 	if err != nil {
 		return
 	}

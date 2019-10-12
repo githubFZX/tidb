@@ -49,6 +49,9 @@ type bmap struct {
 
 // some state message used for accelerate insert value into value chain
 type vstate struct {
+	// add a temp variable
+	vcount uint64
+
 	firstv *value
 
 	insertv *value
@@ -57,7 +60,7 @@ type vstate struct {
 
 // value node
 type value struct {
-	vals [valueCnt][]byte // value array
+	vals [valueCnt]chunk.RowPtr // value array
 	next *value           // point to next value node
 }
 
@@ -71,9 +74,6 @@ func overLoadFactor(count int64, B uint64) bool {
 
 func newvalue() *value {
 	v := new(value)
-	for i := range v.vals {
-		v.vals[i] = make([]byte, 0)
-	}
 	v.next = nil
 	return v
 }
@@ -87,8 +87,8 @@ func newvstate() *vstate {
 }
 
 // get all val from value chain
-func (vs *vstate) getAllvals() [][]byte {
-	vals := make([][]byte, 0)
+func (vs *vstate) getAllvals() []chunk.RowPtr {
+	vals := make([]chunk.RowPtr, 0)
 	firstv := vs.firstv
 	v := firstv
 valuebucketloop:
@@ -149,15 +149,14 @@ func NewMap(hint int64) *hmap {
 }
 
 // insert key, value into b's position i
-func (h *hmap) insert(bs *bstate, b *bmap, bi int, k, v []byte, topHash uint8, isNewPos bool) {
-	if isNewPos {
-		b.tophash[bi] = topHash
-		b.keys[bi] = append(b.keys[bi], k...)
-	}
+func (h *hmap) insertIntoNewPos(bs *bstate, b *bmap, bi int, k []byte, v chunk.RowPtr, topHash uint8) {
+	b.tophash[bi] = topHash
+	b.keys[bi] = append(b.keys[bi], k...)
+
 	vs := b.values[bi]
 	value := vs.insertv
 	vi := vs.inserti
-	value.vals[vi] = append(value.vals[vi], v...)
+	value.vals[vi] = v
 
 	// update message about bstate and vstate we used
 	vi++
@@ -181,22 +180,48 @@ func (h *hmap) insert(bs *bstate, b *bmap, bi int, k, v []byte, topHash uint8, i
 		bs.insertb = overflowb
 		bs.inserti = bi
 		// update number of overflow count
-		h.hmaplock.Lock()
+		/*h.hmaplock.Lock()
 		h.noverflow++
-		h.hmaplock.Unlock()
+		h.hmaplock.Unlock()*/
 	} else {
 		bs.inserti = bi
 	}
 
 	// update number of live cells
-	h.hmaplock.Lock()
+	/*h.hmaplock.Lock()
 	h.count++
-	h.hmaplock.Unlock()
+	h.hmaplock.Unlock()*/
 	bs.bcount++
+	vs.vcount++
+}
+
+// insert key, value into b's position i
+func (h *hmap) insertIntoOldPos(bs *bstate, b *bmap, bi int, v chunk.RowPtr) {
+	vs := b.values[bi]
+	value := vs.insertv
+	vi := vs.inserti
+	value.vals[vi] = v
+
+	//update message about vstate
+	vi++
+	if vi >= valueCnt {
+		vi = 0
+		overflowv := newvalue()
+		value.next = overflowv
+		// update vstate message
+		vs.insertv = overflowv
+		vs.inserti = vi
+	} else {
+		vs.inserti = vi
+	}
+
+	// update number of live cells
+	bs.bcount++
+	vs.vcount++
 }
 
 // put key value pair to map
-func (h *hmap) PutKV(k, v []byte) bool {
+func (h *hmap) PutKV(k []byte, v chunk.RowPtr) bool {
 	hash := FnvHash64(k)
 
 	// get bucketMask and calculate bucket position
@@ -219,30 +244,30 @@ bucketloop:
 		for i := 0; i < bucketCnt; i++ {
 			if b == bs.insertb && i == bs.inserti {
 				// there is no key same with k, so insert key value pair here directly
-				h.insert(bs, b, i, k, v, topHash, true)
+				h.insertIntoNewPos(bs, b, i, k, v, topHash)
 				break bucketloop
 			}
 			if topHash == b.tophash[i] {
 				if bytes.Equal(k, b.keys[i]) {
 					// find key same with k, so insert key value pair here
-					h.insert(bs, b, i, k, v, topHash, false)
-					break bucketloop
-				}
-			}
-			continue
-		}
-		// this condition should not happen. if happened, means insert failed
-		if b.overflow == nil {
-			return false
-		}
-		b = b.overflow
+					h.insertIntoOldPos(bs, b, i, v)
+		break bucketloop
 	}
-
-	return true
+}
+//continue
+}
+// this condition should not happen. if happened, means insert failed
+if b.overflow == nil {
+return false
+}
+b = b.overflow
 }
 
-func (h *hmap) GetV(k []byte) [][]byte {
-	var vals [][]byte
+return true
+}
+
+func (h *hmap) GetV(k []byte) []chunk.RowPtr {
+	var vals []chunk.RowPtr
 
 	hash := FnvHash64(k)
 
@@ -277,8 +302,12 @@ func (h *hmap) GetV(k []byte) [][]byte {
 	return vals
 }
 
-func (h *hmap) MapLen() uint64 {
-	return h.count
+func (h *hmap) MapLen() (len uint64) {
+	for i := range h.buckets {
+		len += h.buckets[i].bcount
+	}
+	//len = h.count
+	return len
 }
 
 func EncodeKeyToByte(k uint64) []byte {
@@ -313,11 +342,11 @@ func DecodeValFromByte(v []byte) (chunk.RowPtr, error) {
 func (h *hmap) Put(hashKey uint64, rowPtr chunk.RowPtr) error {
 	// put key, value byte stream into sharedHT
 	keyStream := EncodeKeyToByte(hashKey)
-	valStream, err := EncodeValToByte(rowPtr)
+	/*valStream, err := EncodeValToByte(rowPtr)
 	if err != nil {
 		return err
-	}
-	ok := h.PutKV(keyStream, valStream)
+	}*/
+	ok := h.PutKV(keyStream, rowPtr)
 	if !ok {
 		return errors.New("failing to put key value pair")
 	}
@@ -326,15 +355,15 @@ func (h *hmap) Put(hashKey uint64, rowPtr chunk.RowPtr) error {
 
 func (h *hmap) Get(hashKey uint64) (rowPtrs []chunk.RowPtr, err error) {
 	keyStream := EncodeKeyToByte(hashKey)
-	valStreams := h.GetV(keyStream)
-	for _, valStream := range valStreams {
+	rowPtrs = h.GetV(keyStream)
+	/*for _, valStream := range valStreams {
 		var rowPtr chunk.RowPtr
 		rowPtr, err = DecodeValFromByte(valStream)
 		if err != nil {
 			return
 		}
 		rowPtrs = append(rowPtrs, rowPtr)
-	}
+	}*/
 	return
 }
 

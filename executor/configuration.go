@@ -36,7 +36,7 @@ var sharedHT Strategy = &SharedHTStrategy{
 	},
 }
 
-var mvMap Strategy = &SharedHTStrategy{
+var mvMap Strategy = &MVMapStrategy{
 	baseStrategy{
 		"mvmap",
 	},
@@ -46,8 +46,8 @@ var mvMap Strategy = &SharedHTStrategy{
 //Define strategy library of HashJoin
 //Join above strategy belongs to hashJoin to hashjoin scene library.
 var HashJoinStrategyLib []Strategy = []Strategy{
-	sharedHT,
 	mvMap,
+	sharedHT,
 }
 
 //..................................................................................

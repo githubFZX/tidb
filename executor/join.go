@@ -261,8 +261,8 @@ func (e *ParallelHashExec) handleRunBuildWorker(r interface{}) {
 }
 
 func (e *ParallelHashExec) buildHashTableForList(doneCh chan interface{}) (err error) {
+	e.innerWorkerWaitGroup.Add(int(e.concurrency))
 	for i := uint(0); i < e.concurrency; i++ {
-		e.innerWorkerWaitGroup.Add(1)
 		// this place is very important. Or error will be occured here.
 		workerId := i
 		go util.WithRecovery(func() { e.runBuildWorker(workerId, doneCh) }, e.handleRunBuildWorker)
